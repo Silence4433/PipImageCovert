@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.prefs.Preferences;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.image.WritableRaster;
@@ -23,6 +24,10 @@ import java.awt.image.WritableRaster;
  * 已支持处理透明图像
  */
 public class ImageCovert extends JFrame {
+
+    private static final String PREF_OPEN_DIRECTORY = "openDirectory";
+    private static final String PREF_SAVE_DIRECTORY = "saveDirectory";
+    private static final Preferences PREFERENCES = Preferences.userNodeForPackage(ImageCovert.class);
 
     private JLabel imageLabel;
     private JButton openButton, saveButton, processButton;
@@ -143,12 +148,13 @@ public class ImageCovert extends JFrame {
     }
 
     private void openImage() {
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = createFileChooser(PREF_OPEN_DIRECTORY);
         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "图片文件", "jpg", "jpeg", "png", "bmp", "gif"));
         int result = chooser.showOpenDialog(this);
         if (result == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
+            rememberDirectory(PREF_OPEN_DIRECTORY, file);
             try {
                 originalImage = ImageIO.read(file);
                 if (originalImage == null) {
@@ -183,7 +189,7 @@ public class ImageCovert extends JFrame {
             JOptionPane.showMessageDialog(this, "没有可保存的处理结果");
             return;
         }
-        JFileChooser chooser = new JFileChooser();
+        JFileChooser chooser = createFileChooser(PREF_SAVE_DIRECTORY);
         chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
                 "PNG 图片", "png"));
         int result = chooser.showSaveDialog(this);
@@ -192,12 +198,31 @@ public class ImageCovert extends JFrame {
             if (!file.getName().toLowerCase().endsWith(".png")) {
                 file = new File(file.getAbsolutePath() + ".png");
             }
+            rememberDirectory(PREF_SAVE_DIRECTORY, file);
             try {
                 ImageIO.write(currentImage, "png", file);
                 JOptionPane.showMessageDialog(this, "保存成功");
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(this, "保存失败: " + ex.getMessage());
             }
+        }
+    }
+
+    private JFileChooser createFileChooser(String preferenceKey) {
+        String directoryPath = PREFERENCES.get(preferenceKey, null);
+        if (directoryPath != null) {
+            File directory = new File(directoryPath);
+            if (directory.isDirectory()) {
+                return new JFileChooser(directory);
+            }
+        }
+        return new JFileChooser();
+    }
+
+    private void rememberDirectory(String preferenceKey, File file) {
+        File directory = file.getParentFile();
+        if (directory != null && directory.isDirectory()) {
+            PREFERENCES.put(preferenceKey, directory.getAbsolutePath());
         }
     }
 
