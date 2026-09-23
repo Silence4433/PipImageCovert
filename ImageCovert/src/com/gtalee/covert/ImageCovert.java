@@ -117,10 +117,19 @@ public class ImageCovert extends JFrame {
             "【提示】\n" +
             " 缩放后可直接保存（不进行减色）。\n" +
             " 处理（减色）后也可直接保存。\n" +
-            " 透明背景全程保留。"
+            " 透明背景全程保留。\n\n" +
+            "【批量统一调色板】\n" +
+            " 用途：把同一个PIP的全部PNG统一为一套公共调色板，避免累计颜色超过256。\n" +
+            " 建议：总颜色248、Alpha阈值128、先关闭抖动；输出根目录中的PNG供下一步使用。\n" +
+            " palette_info目录保存ACT、调色板预览和报告，不要把预览图导入PIP。\n\n" +
+            "【图集与切分文件】\n" +
+            " 用途：将第一版输出的PNG裁剪并排列成图集，同时生成同名.s切分文件和报告。\n" +
+            " 建议：紧密排列、间隔1、勾选透明边界裁剪；输入目录不要选择palette_info。\n" +
+            " 在ImageWorkShop空PIP中使用“从合并图片导入所有帧”选择图集PNG，再以合并256色、不允许变色保存。\n" +
+            " PNG文件大小仅是风险提示；是否超过65535限制，以ImageWorkShop实际保存是否报错为准。"
         );
         
-        infoArea.setPreferredSize(new Dimension(640, 180));
+        infoArea.setPreferredSize(new Dimension(640, 310));
         add(infoArea, BorderLayout.SOUTH);
         
         openButton.addActionListener(new ActionListener() {
@@ -156,7 +165,7 @@ public class ImageCovert extends JFrame {
 
         pack();
         
-        setSize(1150, 650);// 适当增大窗口高度
+        setSize(1150, 790);// 增大窗口高度，完整显示原说明和新增功能说明
         
         setLocationRelativeTo(null);
     }
