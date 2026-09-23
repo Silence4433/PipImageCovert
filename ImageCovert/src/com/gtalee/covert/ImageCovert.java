@@ -129,8 +129,15 @@ public class ImageCovert extends JFrame {
             " PNG文件大小仅是风险提示；是否超过65535限制，以ImageWorkShop实际保存是否报错为准。"
         );
         
-        infoArea.setPreferredSize(new Dimension(640, 310));
-        add(infoArea, BorderLayout.SOUTH);
+        infoArea.setLineWrap(true);
+        infoArea.setWrapStyleWord(true);
+        infoArea.setCaretPosition(0);
+        JScrollPane infoScrollPane = new JScrollPane(
+                infoArea,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        infoScrollPane.setPreferredSize(new Dimension(640, 310));
+        add(infoScrollPane, BorderLayout.SOUTH);
         
         openButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
