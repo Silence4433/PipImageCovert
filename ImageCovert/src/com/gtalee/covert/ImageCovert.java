@@ -30,7 +30,7 @@ public class ImageCovert extends JFrame {
     private static final Preferences PREFERENCES = Preferences.userNodeForPackage(ImageCovert.class);
 
     private JLabel imageLabel;
-    private JButton openButton, saveButton, processButton;
+    private JButton openButton, saveButton, processButton, sharedPaletteButton, atlasButton;
     private JComboBox colorCountCombo;
     private BufferedImage originalImage;
     private BufferedImage processedImage;
@@ -51,6 +51,8 @@ public class ImageCovert extends JFrame {
         saveButton = new JButton("保存结果");
         processButton = new JButton("处理");
         scaleButton = new JButton("缩放像素");
+        sharedPaletteButton = new JButton("批量统一调色板");
+        atlasButton = new JButton("图集与切分文件");
         
         // 缩放控件
         widthField = new JTextField(5);
@@ -88,6 +90,8 @@ public class ImageCovert extends JFrame {
         topPanel.add(saveButton);
         
         topPanel.add(scaleButton);
+        topPanel.add(sharedPaletteButton);
+        topPanel.add(atlasButton);
         add(topPanel, BorderLayout.NORTH);
 
         imageLabel = new JLabel("请打开一张图片", JLabel.CENTER);
@@ -139,10 +143,20 @@ public class ImageCovert extends JFrame {
                 saveImage();
             }
         });
+        sharedPaletteButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                new SharedPaletteBatchTool().setVisible(true);
+            }
+        });
+        atlasButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                new AtlasBuildTool().setVisible(true);
+            }
+        });
 
         pack();
         
-        setSize(900, 650);// 适当增大窗口高度
+        setSize(1150, 650);// 适当增大窗口高度
         
         setLocationRelativeTo(null);
     }
