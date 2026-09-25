@@ -30,7 +30,7 @@ public class ImageCovert extends JFrame {
     private static final Preferences PREFERENCES = Preferences.userNodeForPackage(ImageCovert.class);
 
     private JLabel imageLabel;
-    private JButton openButton, saveButton, processButton, sharedPaletteButton, atlasButton;
+    private JButton openButton, saveButton, processButton, sharedPaletteButton, atlasButton, framePatchButton;
     private JComboBox colorCountCombo;
     private BufferedImage originalImage;
     private BufferedImage processedImage;
@@ -53,6 +53,7 @@ public class ImageCovert extends JFrame {
         scaleButton = new JButton("缩放像素");
         sharedPaletteButton = new JButton("批量统一调色板");
         atlasButton = new JButton("图集与切分文件");
+        framePatchButton = new JButton("帧差补丁转换");
         
         // 缩放控件
         widthField = new JTextField(5);
@@ -92,6 +93,7 @@ public class ImageCovert extends JFrame {
         topPanel.add(scaleButton);
         topPanel.add(sharedPaletteButton);
         topPanel.add(atlasButton);
+        topPanel.add(framePatchButton);
         add(topPanel, BorderLayout.NORTH);
 
         imageLabel = new JLabel("请打开一张图片", JLabel.CENTER);
@@ -164,6 +166,12 @@ public class ImageCovert extends JFrame {
                 new SharedPaletteBatchTool().setVisible(true);
             }
         });
+        framePatchButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                new FramePatchComposeTool().setVisible(true);
+            }
+        });
+
         atlasButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 new AtlasBuildTool().setVisible(true);
