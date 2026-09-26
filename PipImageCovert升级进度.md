@@ -1,4 +1,4 @@
-﻿# PipImageCovert 升级进度
+# PipImageCovert 升级进度
 
 ## 当前状态
 
@@ -190,3 +190,76 @@ JDK 1.6 在当前 Windows 权限下打印了无法创建 Java Preferences 注册
 - 已使用 JDK 1.6、`-encoding GBK` 编译全部源码到实际运行目录 `PipImageCovert/ImageCovert/bin`，结果 `ACTUAL_BIN_COMPILE=0`。
 - 构建器现有进度阶段包括：读取帧、分析帧差、输出图块、检查 PIM 容量 `xx/xx 个图块`、生成配置索引、写入 `frame_patches.compose.properties`。
 - 尚未进行用户机器上的实际 GUI 点击验证；下一步应确认启动使用的 classpath 指向 `ImageCovert/bin`，并观察进度条内部文字是否从“正在转换，请稍候...”切换到上述阶段信息。
+## 2026-09-26 完善流程建议与生产验证边界
+
+### 当前已实现并通过工具链验证的部分
+
+- PipImageCovert 已完成帧差补丁生成、统一调色板、透明区域处理、递归切块、PIM 容量预检、PIP 分组信息输出、配置文件生成和后台进度显示。
+- New_ImageWorkShop1.0 已完成按 `patch.*.group` 组装多个运行时 PIP、CTS 输出链路以及保存错误修复后的编译验证。
+- 已通过工具侧逐像素重建验证、PIM 模拟器测试和 CTS 生成测试。
+
+### 仍需作为生产流程补齐的验证
+
+1. 使用真实 Eclipse/SWT 环境启动 New_ImageWorkShop，加载实际帧差配置并保存 CTS。
+2. 使用客户端真实资源加载链路验证生成的 CTS/PIP：确认 CTN/CTS 解析、PIP 模式识别、图块坐标、帧顺序、透明色和所有帧显示均正确。
+3. 在客户端真实运行条件下测量内存峰值、资源加载时间和缓存占用，不能仅以编译或离线 CTS 文件生成成功作为最终完成依据。
+4. 用原版动画和新生成动画做同尺寸、同帧数、同颜色模式的文件大小及内存对比，避免把不同 PIP 模式或不同调色板条件下的数据直接比较。
+
+### 当前流程优化建议
+
+- 先保留当前“安全分组 + 容量预检”作为正确性基线，不要直接删除；优化应以真实 `PipImage.save` 输出和客户端加载结果为验收条件。
+- 将“总 PIP 数、每个 PIP 文件大小、每个 atlas 的 pdata/idata 长度、每帧引用数量、重复像素比例”写入构建报告，后续才能定位体积膨胀来自切分、调色板、PNG 编码还是 CTS/PIP 组织方式。
+- 将当前固定 `SAFE_PIM_GROUP_SIZE=32` 视为保守兜底，而不是最终最优值；在确认模拟器与真实 `PipImage` 编码一致后，再使用二分/逐步装箱把每组尽量填满 255 图块和 65535 字节限制。
+- 帧差算法应先统一比较空间：在同一共享调色板、同一透明规则、同一量化结果上比较帧差；否则颜色量化噪声会把本来相同的区域误判为差异。
+- 组装阶段应尽量复用完全相同或可安全复用的图块，但必须保留每个引用的坐标和帧归属；不能只按文件名去重而丢失不同位置的引用。
+## 2026-09-26 分组数量优化第一阶段
+
+- 根据当前首要目标，先优化 PIP 分组数量，暂不修改帧差重复度和最终体积算法。
+- 已将 `FramePatchComposeBuilder` 中原先“容量检查 + 固定 `SAFE_PIM_GROUP_SIZE=32` 强制封组”的逻辑改为纯容量驱动：只有加入下一个图块后 `PimCapacitySimulator.simulate(...)` 失败时才创建新组。
+- 配置索引生成阶段已同步采用相同的容量驱动规则，避免实际 `patch.*.group` 与 `pim.group.*` 不一致。
+- 保留 `SAFE_PIM_GROUP_SIZE` 常量作为兼容记录，但不再作为正常分组条件；后续确认真实客户端加载正常后，可再清理无效常量或改为明确的失败保护。
+- 使用 JDK 1.6、GBK 编译临时输出并运行 `PimCapacitySimulatorTest`、`FramePatchComposeBuilderTest`：均通过；实际测试样本 99 个图块从原先 4 组变为 1 组，逐像素重建仍为 `diffPixels=0`。
+- 已重新编译到实际运行目录 `PipImageCovert/ImageCovert/bin`，结果 `ACTUAL_BIN_COMPILE=0`。
+- 当前仍未宣称客户端生产验证完成；下一步应使用该分组结果生成 CTS/PIP，并在客户端确认全部帧、坐标、透明色和内存表现正常。如果客户端测试通过，再继续处理动画总体积和跨帧图块复用问题。
+## 2026-09-26 容量分组重复计算优化
+
+- 已修复分组流程中第二次重复调用 `PimCapacitySimulator.simulate(...)` 的问题。
+- 第一次容量分组时直接记录 `patch` 到 group 的映射；生成 `patch.*.group` 配置索引时复用该映射，不再重新构造前缀列表并重复进行完整容量模拟。
+- `PimCapacitySimulatorTest` 和 `FramePatchComposeBuilderTest` 均通过，逐像素重建仍为 `diffPixels=0`。
+- 已重新编译到实际 `PipImageCovert/ImageCovert/bin`，结果 `ACTUAL_BIN_COMPILE=0`。
+- 这次只消除了第二轮重复模拟；第一轮仍会对每个候选前缀做完整模拟。后续真实核心移植或增量状态池优化时，再处理第一轮的主要耗时。
+## 2026-09-26 图块状态缓存第一阶段
+
+- 已按方案加入 `PimCapacitySimulator.PreparedPatch`：每个图块首次进入容量检查时，将宽高、ARGB 像素数组和颜色集合保存到实例对象中。
+- 分组前缀检查使用 `ArrayList<PreparedPatch>` 保存当前组；加入第 N 个图块时复用前 N-1 个已准备对象，只为新图块执行一次准备，不再重新扫描旧 `BufferedImage` 的颜色和像素。
+- `simulatePrepared` 已直接使用已缓存的 PreparedPatch 进行颜色、布局和 atlas 像素构造；仍保留整体 atlas PNG 精确压缩检查，避免把不可简单相加的 PNG 容量错误地当作单图容量之和。
+- 已保持 PipImageCovert 源文件 GBK/CP936 编码，并使用 JDK 1.6、`-encoding GBK` 编译到实际 `ImageCovert/bin`，结果 `ACTUAL_BIN_COMPILE=0`。
+- 该阶段解决的是“旧图块重复读取/颜色扫描/单图索引准备”问题；每个候选前缀仍会重新进行整体布局和 atlas PNG 精确验证，这是为了保持容量判断正确，后续再结合真实 New_ImageWorkShop 核心评估能否继续增量化。
+## 2026-09-26 真实 PNG 合并容量预检移植中
+
+已原字节复制 New_ImageWorkShop 的 PngFile/PngTrunk 与 jzlib 源码到 PipImageCovert，新增 WorkshopPimValidator，按组重建 atlas 并调用真实 PngFile.writePngSpecial(bestCompress=true) 检查 pdata/idata 65535 限制。布局仍调用 PipLayout（现已修复浅拷贝以保留原矩形坐标），尚需与 SWTUtils.getBestLayout 做差分确认；另需用实际 New_ImageWorkShop 输出进行逐组容量及组数对照，不能宣称完全等价。四帧/99 图块重建测试通过，客户端仍待测。
+
+### 本轮实测
+
+- JDK 1.6 -encoding GBK 编译通过；FramePatchComposeBuilderTest 四帧/99 图块逐像素重建通过（diffPixels=0）。
+- 使用真实 New_ImageWorkShop PNG 特殊编码器后，该样本分为 2 组，首组 67 图块，pdata=1048、maxIdata=56068；与旧模拟器预测的 1 组不同，说明旧模拟器确实不能作为最终裁决。
+- 编码器虽然一致，仍未直接运行 New_ImageWorkShop 的 PipImage.save 作端到端产物对照；客户端加载亦未验证。此状态不能称作最终生产闭环。
+
+## 2026-09-26 合并模式真实产物对照完成
+
+- 已完成 WorkshopPimValidator 与真实 PipImage.save() 的逐组字节特征对照：pdata 长度/CRC、各 atlas 的 idata CRC、atlas 数量均一致。
+- 已修复容量预检与生产 CTN 组装的两个关键一致性问题：第 0 组必须包含 base.png 分块；预检必须保持与 PipImage.addFrame 相同的透明索引复用规则。
+- 四帧/99 个补丁样本已完成：帧差重建 diffPixels=0；真实 CTN 构建通过；CTS/PIP 回读并逐补丁匹配通过（99/99）。
+- 该样本最终分为 2 个 PIP 组：第 0 组 34 个补丁加 base 分块，共 38 个图像帧；第 1 组 65 个补丁。实际 PIP 与预检的 pdata/idata 特征一致。
+- PipImageCovert 全部 Java 源码使用 JDK 1.6、-encoding GBK 全量编译通过。
+- 客户端真实加载/播放仍未执行，因此尚未交接客户端测试；当前已达到可进行客户端测试的工具链交接条件。
+
+## 2026-09-26 真实 PIM 保存格式分组与回归
+
+- `FramePatchComposeBuilder` 的生产分组不再调用旧版 `PimCapacitySimulator`；旧模拟器当前仅由独立测试类引用，未进入生产转换路径。
+- 分组边界采用指数探测与二分定位，避免对每个 `1..N` 前缀逐次完整压缩；每次候选判断都会重建完整 PIM 保存字节流，包括 `PIM` 头、调色板、帧位置压缩数据、atlas `pdata` 和各 `idata`，并按 `PipImage.save(DataOutputStream,true)` 的字段顺序执行 65535 限制检查。
+- 已修正并核对真实格式细节：合并模式允许最多 256 色；调色板保存后直接写帧信息长度，不额外写重复帧数；`pdata` 只写一次，随后写各 atlas 的 `idata`。
+- 四帧／99 图块回归：四帧重建 `diffPixels=0`；GBK/JDK 1.6 编译通过；真实 `New_ImageWorkShop1.0 FramePatchCtsBuilder` 生成 CTS 701 bytes；配置中的 3 个 PIM 分组实际生成 3 个 PIP（112516、26556、130 bytes），CTS 构建通过。
+- 修改文件已完成 CP936/GBK 解码和 CRLF 字节审计，无 UTF-8 BOM、无裸 LF。
+- 仍未完成客户端真实加载/播放验证；本项工具链验证通过后才进入客户端测试交接。
+
