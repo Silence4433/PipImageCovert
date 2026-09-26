@@ -113,25 +113,28 @@ public class PngFile {
         }
 
         // Use jzlib to compress data
+        byte[] rawData = outBytes.toByteArray();
         byte[] zipdata = null;
         if (bestCompress) {
             for (int wbs = 9; wbs <= 15; wbs++) {
                 ByteArrayOutputStream zipBytes = new ByteArrayOutputStream();
                 ZOutputStream zout = new ZOutputStream(zipBytes, JZlib.Z_BEST_COMPRESSION, wbs);
-                zout.write(outBytes.toByteArray());
+                zout.write(rawData);
                 zout.close();
-                if (zipdata == null || zipBytes.toByteArray().length < zipdata.length) {
-                    zipdata = zipBytes.toByteArray();
+                byte[] candidate = zipBytes.toByteArray();
+                if (zipdata == null || candidate.length < zipdata.length) {
+                    zipdata = candidate;
                 }
             }
         } else {
             ByteArrayOutputStream zipBytes = new ByteArrayOutputStream();
             ZOutputStream zout = new ZOutputStream(zipBytes, JZlib.Z_BEST_COMPRESSION, 12);
-            zout.write(outBytes.toByteArray());
+            zout.write(rawData);
             zout.close();
-            if (zipdata == null || zipBytes.toByteArray().length < zipdata.length) {
-                zipdata = zipBytes.toByteArray();
-            }
+            byte[] candidate = zipBytes.toByteArray();
+                if (zipdata == null || candidate.length < zipdata.length) {
+                    zipdata = candidate;
+                }
         }
 
         // Write compressed data

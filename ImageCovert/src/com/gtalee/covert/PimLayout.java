@@ -5,17 +5,30 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 /** 与旧版SWTUtils.getBestLayout等价的纯JDK布局实现。 */
 public final class PimLayout {
+    private static final java.util.Map<String,Rectangle[]> FRAME_CACHE = new java.util.HashMap<String,Rectangle[]>();
+    private static final java.util.Map<String,Rectangle[]> BOUNDS_CACHE = new java.util.HashMap<String,Rectangle[]>();
+    /* Cache only the best fit width; coordinates are still rebuilt for the caller. */
+    private static final java.util.Map<String,Integer> BEST_WIDTH_CACHE = new java.util.HashMap<String,Integer>();
     public static final class Result { public Rectangle[] frames; public Rectangle[] bounds; }
     private PimLayout() {}
     public static Result layout(Rectangle[] frames) {
         Result out = new Result();
         if (frames.length == 0) { out.frames = frames; out.bounds = new Rectangle[] { new Rectangle(0,0,0,0) }; return out; }
+        String cacheKey = dimensionsKey(frames);
+        Rectangle[] cachedFrames = FRAME_CACHE.get(cacheKey);
+        Rectangle[] cachedBounds = BOUNDS_CACHE.get(cacheKey);
+        if (cachedFrames != null && cachedBounds != null) {
+            for (int i = 0; i < frames.length; i++) { frames[i].x=cachedFrames[i].x; frames[i].y=cachedFrames[i].y; }
+            out.frames=frames; out.bounds=copy(cachedBounds); return out;
+        }
         int total = 0; for (Rectangle r : frames) total += r.width * r.height;
         Rectangle all = bestImpl(frames, 0, frames.length);
-        if (all.width * all.height <= total * 102 / 100) { out.frames=frames; out.bounds=new Rectangle[]{all}; return out; }
+        if (all.width * all.height <= total * 102 / 100) { FRAME_CACHE.put(cacheKey,copy(frames)); BOUNDS_CACHE.put(cacheKey,new Rectangle[]{new Rectangle(all)}); out.frames=frames; out.bounds=new Rectangle[]{all}; return out; }
         int bestType=-1,bestSplit=-1,bestArea=all.width*all.height;
         for(int type=0;type<=4;type++) {
             Rectangle[] sorted=copy(frames); if(type!=0) sort(sorted,type);
@@ -24,11 +37,20 @@ public final class PimLayout {
         Rectangle[] bounds;
         if(bestType<0) bounds=new Rectangle[]{bestImpl(frames,0,frames.length)};
         else { Rectangle[] sorted=copy(frames); sort(sorted,bestType); Rectangle a=bestImpl(sorted,0,bestSplit), b=bestImpl(sorted,bestSplit,sorted.length-bestSplit); for(int i=bestSplit;i<sorted.length;i++)sorted[i].x|=1<<14; bounds=new Rectangle[]{a,b}; }
-        out.frames=frames; out.bounds=bounds; return out;
+        FRAME_CACHE.put(cacheKey,copy(frames)); BOUNDS_CACHE.put(cacheKey,copy(bounds)); out.frames=frames; out.bounds=bounds; return out;
     }
+    public static Result layoutProbe(Rectangle[] frames) {
+        Result out=new Result(); if(frames.length==0){out.frames=frames;out.bounds=new Rectangle[]{new Rectangle(0,0,0,0)};return out;}
+        int maxw=0,totalw=0,totalArea=0; for(int i=0;i<frames.length;i++){maxw=Math.max(maxw,frames[i].width);totalw+=frames[i].width;totalArea+=frames[i].width*frames[i].height;}
+        int root=(int)Math.sqrt(totalArea); int[] widths=new int[]{maxw,Math.max(maxw,root),Math.max(maxw,root*5/4),Math.max(maxw,root*3/2),Math.max(maxw,root*2),totalw};
+        int bestArea=Integer.MAX_VALUE,bestWidth=maxw,bestOff=Integer.MAX_VALUE; for(int i=0;i<widths.length;i++){int w=widths[i];boolean seen=false;for(int j=0;j<i;j++)if(widths[j]==w)seen=true;if(seen)continue;Rectangle r=bestAt(frames,0,frames.length,w);int area=r.width*r.height,off=Math.abs(r.width-r.height);if(area<bestArea||(area==bestArea&&off<bestOff)){bestArea=area;bestWidth=w;bestOff=off;}}
+        Rectangle bounds=bestAt(frames,0,frames.length,bestWidth);out.frames=frames;out.bounds=new Rectangle[]{bounds};return out;
+    }
+    private static String dimensionsKey(Rectangle[] a){StringBuffer b=new StringBuffer(a.length*8);for(int i=0;i<a.length;i++)b.append(a[i].width).append("x").append(a[i].height).append(";");return b.toString();}
+    private static String dimensionsKey(Rectangle[] a,int start,int count){StringBuffer b=new StringBuffer(count*8);for(int i=start;i<start+count;i++)b.append(a[i].width).append("x").append(a[i].height).append(";");return b.toString();}
     private static Rectangle[] copy(Rectangle[] a){Rectangle[] b=new Rectangle[a.length];System.arraycopy(a,0,b,0,a.length);return b;}
     private static void sort(Rectangle[] a, final int type){Arrays.sort(a,new Comparator<Rectangle>(){public int compare(Rectangle x,Rectangle y){if(type==1)return y.height-x.height;if(type==2)return y.width-x.width;if(type==3)return y.width*y.height-x.width*x.height;double a=(double)x.width/x.height,b=(double)y.width/y.height;return a<b?-1:a>b?1:0;}public boolean equals(Object o){return true;}});}
-    private static Rectangle bestImpl(Rectangle[] f,int start,int count){int minw=10000000,maxw=0,totalw=0;for(int i=start;i<start+count;i++){minw=Math.min(minw,f[i].width);maxw=Math.max(maxw,f[i].width);totalw+=f[i].width;}int bestArea=Integer.MAX_VALUE,bestW=0,bestOff=Integer.MAX_VALUE;for(int w=maxw;w<=totalw;w+=minw){Rectangle r=bestAt(f,start,count,w);int area=r.width*r.height,off=Math.abs(r.width-r.height);if(area<bestArea||(area==bestArea&&off<bestOff)){bestArea=area;bestW=w;bestOff=off;}}return bestAt(f,start,count,bestW);}
+    private static Rectangle bestImpl(Rectangle[] f,int start,int count){String key=dimensionsKey(f,start,count);Integer cached=BEST_WIDTH_CACHE.get(key);if(cached!=null)return bestAt(f,start,count,cached.intValue());int minw=10000000,maxw=0,totalw=0;for(int i=start;i<start+count;i++){minw=Math.min(minw,f[i].width);maxw=Math.max(maxw,f[i].width);totalw+=f[i].width;}int bestArea=Integer.MAX_VALUE,bestW=0,bestOff=Integer.MAX_VALUE;for(int w=maxw;w<=totalw;w+=minw){Rectangle r=bestAt(f,start,count,w);int area=r.width*r.height,off=Math.abs(r.width-r.height);if(area<bestArea||(area==bestArea&&off<bestOff)){bestArea=area;bestW=w;bestOff=off;}}BEST_WIDTH_CACHE.put(key,Integer.valueOf(bestW));return bestAt(f,start,count,bestW);}
     private static Rectangle bestAt(Rectangle[] frames,int start,int count,int fit){Rectangle[] a=new Rectangle[count];System.arraycopy(frames,start,a,0,count);Arrays.sort(a,new Comparator<Rectangle>(){public int compare(Rectangle x,Rectangle y){return y.height-x.height;}public boolean equals(Object o){return true;}});List<Rectangle> free=new ArrayList<Rectangle>();int right=0,bottom=0;for(int i=0;i<a.length;i++){Rectangle r=a[i];int bi=findBest(free,r);if(bi>=0){Rectangle t=free.get(bi);r.x=t.x;r.y=t.y;if(r.width==t.width&&r.height==t.height)free.remove(bi);else if(r.width==t.width){t.y+=r.height;t.height-=r.height;}else if(r.height==t.height){t.x+=r.width;t.width-=r.width;}else{Rectangle n=new Rectangle(t.x,t.y+r.height,r.width,t.height-r.height);t.x+=r.width;t.width-=r.width;merge(free,n);}}else if(right+r.width<=fit){r.x=right;r.y=0;right+=r.width;if(r.height<bottom)merge(free,new Rectangle(r.x,r.height,r.width,bottom-r.height));else if(r.height>bottom){extend(free,bottom,r.height-bottom,0,right-r.width);bottom=r.height;}}else{bi=findMinY(free,r,bottom);int add;if(bi>=0){add=r.height-free.get(bi).height;extend(free,bottom,add,0,right);}else{add=r.height;right=Math.max(right,r.width);extend(free,bottom,add,r.width,right);free.add(new Rectangle(0,bottom,r.width,r.height));}bottom+=add;i--;}}
         return new Rectangle(0,0,right,bottom);}
     private static int findBest(List<Rectangle> l,Rectangle t){int bi=-1,best=100000000;for(int i=0;i<l.size();i++){Rectangle r=l.get(i);int wo=r.width-t.width,ho=r.height-t.height;if(wo>=0&&ho>=0&&wo*2+ho<best){bi=i;best=wo*2+ho;}}return bi;}
