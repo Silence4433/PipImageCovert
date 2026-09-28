@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.prefs.Preferences;
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -37,9 +36,11 @@ import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 
-/** 第二版：透明边界裁剪、图集以及 ImageWorkShop VERSION_4 .s 文件。 */
+/**
+ * 【已弃用】图集与切分文件功能已停止使用，仅保留源码供历史参考。
+ * 不得从主界面入口启动本类。 第二版：透明边界裁剪、图集以及 ImageWorkShop VERSION_4 .s 文件。 */
+/** 【已弃用】图集构建窗口。 */
 public class AtlasBuildTool extends JFrame {
-    private static final Preferences PREFS = Preferences.userNodeForPackage(AtlasBuildTool.class);
     private final JTextField inputField = new JTextField(34);
     private final JTextField outputField = new JTextField(34);
     private final JTextField nameField = new JTextField("atlas", 12);
@@ -48,12 +49,13 @@ public class AtlasBuildTool extends JFrame {
     private final JSpinner paddingSpinner = new JSpinner(new SpinnerNumberModel(1, 0, 16, 1));
     private final JCheckBox trimCheck = new JCheckBox("裁剪透明边界", true);
 
+    /** 【已弃用】构造图集构建窗口。 */
     public AtlasBuildTool() {
         setTitle("PipImageCovert - 图集与切分文件");
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(6, 6));
-        inputField.setText(PREFS.get("atlasInput", ""));
-        outputField.setText(PREFS.get("atlasOutput", ""));
+        inputField.setText(AppPreferences.get("atlasInput", ""));
+        outputField.setText(AppPreferences.get("atlasOutput", ""));
         JPanel form = new JPanel(new GridLayout(0, 1, 4, 4));
         form.add(directoryRow("输入目录：", inputField, true));
         form.add(directoryRow("输出目录：", outputField, false));
@@ -97,7 +99,7 @@ public class AtlasBuildTool extends JFrame {
             Result result = build(input, output, name, modeCombo.getSelectedIndex() == 1,
                     ((Integer) columnsSpinner.getValue()).intValue(),
                     ((Integer) paddingSpinner.getValue()).intValue(), trimCheck.isSelected());
-            PREFS.put("atlasInput", input.getAbsolutePath()); PREFS.put("atlasOutput", output.getAbsolutePath());
+            AppPreferences.put("atlasInput", input.getAbsolutePath()); AppPreferences.put("atlasOutput", output.getAbsolutePath());
             JOptionPane.showMessageDialog(this, "生成完成。\n图块：" + result.tileCount + "\n图集："
                     + result.width + "x" + result.height + "\nPNG字节：" + result.pngBytes
                     + (result.risk ? "\n警告：超过或接近65535字节，请拆分图集。" : ""));

@@ -71,8 +71,8 @@ public final class FramePatchComposeTool extends JFrame {
         setLocationRelativeTo(null);
     }
 
-    private static String loadPath(String key, String fallback) { String value = java.util.prefs.Preferences.userNodeForPackage(FramePatchComposeTool.class).get(key, fallback); return value == null ? fallback : value; }
-    private static void savePath(String key, String value) { java.util.prefs.Preferences.userNodeForPackage(FramePatchComposeTool.class).put(key, value == null ? "" : value); }
+    private static String loadPath(String key, String fallback) { return AppPreferences.get(key, fallback); }
+    private static void savePath(String key, String value) { AppPreferences.put(key, value == null ? "" : value); }
 
     private JPanel row(String label, final JTextField field, final boolean dir) {
         JPanel p = new JPanel(new FlowLayout(FlowLayout.LEFT));

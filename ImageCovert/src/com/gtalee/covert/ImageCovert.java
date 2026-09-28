@@ -3,18 +3,23 @@ package com.gtalee.covert;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.WindowStateListener;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBuffer;
 import java.awt.image.IndexColorModel;
 import java.io.File;
 import java.io.IOException;
+import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.prefs.Preferences;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.HashMap;
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.image.WritableRaster;
@@ -27,10 +32,9 @@ public class ImageCovert extends JFrame {
 
     private static final String PREF_OPEN_DIRECTORY = "openDirectory";
     private static final String PREF_SAVE_DIRECTORY = "saveDirectory";
-    private static final Preferences PREFERENCES = Preferences.userNodeForPackage(ImageCovert.class);
 
     private JLabel imageLabel;
-    private JButton openButton, saveButton, processButton, sharedPaletteButton, atlasButton, framePatchButton;
+    private JButton openButton, saveButton, processButton, sharedPaletteButton, atlasButton, framePatchButton, usageButton;
     private JComboBox colorCountCombo;
     private BufferedImage originalImage;
     private BufferedImage processedImage;
@@ -39,14 +43,26 @@ public class ImageCovert extends JFrame {
     private JTextField widthField;
     private JTextField heightField;
     private JCheckBox keepRatioCheck;
+    private JCheckBox applyToAllCheck;
+    private File currentImageFile;
     private BufferedImage currentImage;  // 新增：当前工作图片
+    // 多选打开后的全部输入文件；处理按钮会逐张转换并输出。
+    private File[] selectedImageFiles = new File[0];
+    private final Map processedImageFiles = new LinkedHashMap();
+    private final Map loadedImages = new LinkedHashMap();
+    private final Map thumbnailLabels = new LinkedHashMap();
+    private JPanel thumbnailPanel;
+    private JScrollPane imageScrollPane;
+    private double imageZoom = 1.0;
+    private Point dragStart;
+    private JLabel zoomInfoLabel;
     
     public ImageCovert() {
         setTitle("颜色减少工具 (索引色输出)");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        JPanel topPanel = new JPanel(new FlowLayout());
+        final JPanel topPanel = new JPanel(new FlowLayout());
         openButton = new JButton("打开图片");
         saveButton = new JButton("保存结果");
         processButton = new JButton("处理");
@@ -54,6 +70,7 @@ public class ImageCovert extends JFrame {
         sharedPaletteButton = new JButton("批量统一调色板");
         atlasButton = new JButton("图集与切分文件");
         framePatchButton = new JButton("帧差补丁转换");
+        usageButton = new JButton("使用建议");
         
         // 缩放控件
         widthField = new JTextField(5);
@@ -63,6 +80,8 @@ public class ImageCovert extends JFrame {
         topPanel.add(new JLabel(" x "));
         topPanel.add(heightField);
         topPanel.add(keepRatioCheck);
+        applyToAllCheck = new JCheckBox("应用到全部已打开图片", true);
+        topPanel.add(applyToAllCheck);
 
         colorCountCombo = new JComboBox();
         colorCountCombo.addItem(new Integer(16));
@@ -92,56 +111,66 @@ public class ImageCovert extends JFrame {
         
         topPanel.add(scaleButton);
         topPanel.add(sharedPaletteButton);
-        topPanel.add(atlasButton);
+        // 【已弃用】图集与切分文件功能入口已停用。
+        // topPanel.add(atlasButton);
         topPanel.add(framePatchButton);
         add(topPanel, BorderLayout.NORTH);
 
+        // 固定放在窗口右上角独立区域，避免顶部控件过多时按钮被挤出窗口。
+        JPanel usagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 3));
+        usageButton.setVisible(true);
+        usagePanel.add(usageButton);
+        add(usagePanel, BorderLayout.EAST);
+
+        // 左侧显示本次选择的全部图片缩略图；避免打开图片时只保留第一张。
+        thumbnailPanel = new JPanel();
+        thumbnailPanel.setLayout(new BoxLayout(thumbnailPanel, BoxLayout.Y_AXIS));
+        JScrollPane thumbnailScrollPane = new JScrollPane(thumbnailPanel);
+        thumbnailScrollPane.setPreferredSize(new Dimension(190, 500));
+        thumbnailScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+        thumbnailScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        add(thumbnailScrollPane, BorderLayout.WEST);
         imageLabel = new JLabel("请打开一张图片", JLabel.CENTER);
+        imageLabel.setHorizontalAlignment(JLabel.CENTER);
+        imageLabel.setVerticalAlignment(JLabel.CENTER);
         imageLabel.setPreferredSize(new Dimension(640, 480));
-        add(new JScrollPane(imageLabel), BorderLayout.CENTER);
+        imageScrollPane = new JScrollPane(imageLabel);
+        imageScrollPane.setWheelScrollingEnabled(false);
+        installImageViewerHandlers();
+        JPanel viewerPanel = new JPanel(new BorderLayout());
+        viewerPanel.add(imageScrollPane, BorderLayout.CENTER);
+        JPanel zoomInfoPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 3));
+        zoomInfoLabel = new JLabel("缩放: 100%");
+        zoomInfoLabel.setOpaque(true);
+        zoomInfoLabel.setBackground(new Color(255, 255, 225));
+        zoomInfoLabel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+        zoomInfoPanel.add(zoomInfoLabel);
+        viewerPanel.add(zoomInfoPanel, BorderLayout.SOUTH);
+        add(viewerPanel, BorderLayout.CENTER);
         
         
-        // 使用说明
-        JTextArea infoArea = new JTextArea();
-        infoArea.setEditable(false);
-        infoArea.setBackground(new Color(245, 245, 245));
-        infoArea.setFont(new Font("微软雅黑", Font.PLAIN, 13));
-        infoArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        infoArea.setText(
+        final String usageText =
             "【推荐操作流程】\n" +
-            "① 打开图片\n" +
-            "② 输入目标宽高（可选），点击“缩放” → 可保存缩放后的图片\n" +
-            "③ 选择颜色数，点击“处理” → 可保存减色后的图片\n\n" +
-            "【为什么要先缩放再处理？】\n" +
-            " 缩放会通过插值计算新像素，必然引入新颜色。\n" +
-            " 如果先减色再缩放，缩放会破坏减色效果，使颜色数重新增多。\n" +
-            " 先缩放再减色，能确保最终图像同时满足尺寸和颜色数要求。\n\n" +
-            "【提示】\n" +
-            " 缩放后可直接保存（不进行减色）。\n" +
-            " 处理（减色）后也可直接保存。\n" +
-            " 透明背景全程保留。\n\n" +
-            "【批量统一调色板】\n" +
-            " 用途：把同一个PIP的全部PNG统一为一套公共调色板，避免累计颜色超过256。\n" +
-            " 建议：总颜色248、Alpha阈值128、先关闭抖动；输出根目录中的PNG供下一步使用。\n" +
-            " palette_info目录保存ACT、调色板预览和报告，不要把预览图导入PIP。\n\n" +
-            "【图集与切分文件】\n" +
-            " 用途：将第一版输出的PNG裁剪并排列成图集，同时生成同名.s切分文件和报告。\n" +
-            " 建议：紧密排列、间隔1、勾选透明边界裁剪；输入目录不要选择palette_info。\n" +
-            " 在ImageWorkShop空PIP中使用“从合并图片导入所有帧”选择图集PNG，再以合并256色、不允许变色保存。\n" +
-            " PNG文件大小仅是风险提示；是否超过65535限制，以ImageWorkShop实际保存是否报错为准。"
-        );
-        
-        infoArea.setLineWrap(true);
-        infoArea.setWrapStyleWord(true);
-        infoArea.setCaretPosition(0);
-        JScrollPane infoScrollPane = new JScrollPane(
-                infoArea,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        infoScrollPane.setPreferredSize(new Dimension(640, 310));
-        add(infoScrollPane, BorderLayout.SOUTH);
-        
-        openButton.addActionListener(new ActionListener() {
+            "第一步：使用“打开图片”选择全部序列帧。建议缩放为180 x 180像素，接近游戏内人物显示大小，避免尺寸过大造成比例失调。然后点击“缩放像素”。\n\n" +
+            "第二步：缩放完成后选择颜色数，建议选择128色，然后点击“处理”。\n\n" +
+            "第三步：点击“保存结果”，选择指定目录保存处理后的图片集。\n\n" +
+            "第四步：点击“批量统一调色板”，输入第三步保存的图片目录，选择任意输出目录，其余参数保持默认，点击“开始批量转换”。\n\n" +
+            "第五步：点击“帧差补丁转换”，输入第四步生成的图集目录，输出选择任意目录，参数保持默认，点击“开始转换并验证”。\n\n" +
+            "完成第五步后，可在 New_ImageWorkShop1.0（美术工具）中使用“帧差组装”功能，组装为动画文件。\n\n" +
+            "流程说明：第一步至第三步用于把原始图片集处理为统一尺寸、统一颜色格式的图片，供后续步骤使用。第四步用于统一图片调色板和颜色数量，使其符合PIP合并模式要求，并生成调色板文件；调色板文件当前暂不参与后续导入。第五步会按照约定算法把图片分割为图块、去重并去除透明边界，以节省内存；美术工具负责后续动画组装。最终可得到PIP图片和CTS动画文件。";
+                usageButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                JTextArea usageArea = new JTextArea(usageText);
+                usageArea.setEditable(false);
+                usageArea.setLineWrap(true);
+                usageArea.setWrapStyleWord(true);
+                usageArea.setFont(new Font("微软雅黑", Font.PLAIN, 13));
+                usageArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+                JScrollPane usageScrollPane = new JScrollPane(usageArea);
+                usageScrollPane.setPreferredSize(new Dimension(720, 520));
+                JOptionPane.showMessageDialog(ImageCovert.this, usageScrollPane, "使用建议", JOptionPane.INFORMATION_MESSAGE);
+            }
+        });        openButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 openImage();
             }
@@ -172,11 +201,7 @@ public class ImageCovert extends JFrame {
             }
         });
 
-        atlasButton.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                new AtlasBuildTool().setVisible(true);
-            }
-        });
+        // 【已弃用】图集与切分文件入口已注释，不再打开 AtlasBuildTool。
 
         pack();
         
@@ -186,68 +211,224 @@ public class ImageCovert extends JFrame {
     }
 
     private void openImage() {
-        JFileChooser chooser = createFileChooser(PREF_OPEN_DIRECTORY);
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-                "图片文件", "jpg", "jpeg", "png", "bmp", "gif"));
-        int result = chooser.showOpenDialog(this);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            File file = chooser.getSelectedFile();
-            rememberDirectory(PREF_OPEN_DIRECTORY, file);
-            try {
-                originalImage = ImageIO.read(file);
-                if (originalImage == null) {
-                    JOptionPane.showMessageDialog(this, "无法读取图片格式");
-                    return;
-                }
-                currentImage = originalImage;  // 新增
-                showImage(currentImage);       // 改为显示 currentImage
-                saveButton.setEnabled(false);
-                processedImage = null;
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "读取图片失败: " + ex.getMessage());
-            }
+        File[] files = chooseImageFilesByDrag();
+        if (files == null || files.length == 0) return;
+        selectedImageFiles = files;
+        rememberDirectory(PREF_OPEN_DIRECTORY, selectedImageFiles[0]);
+        if (loadedImages == null || processedImageFiles == null || thumbnailPanel == null) {
+            JOptionPane.showMessageDialog(this, "图片查看区域尚未初始化，请重新启动工具");
+            return;
         }
+        loadedImages.clear(); processedImageFiles.clear(); thumbnailPanel.removeAll();
+        StringBuffer errors = new StringBuffer();
+        for (int i = 0; i < selectedImageFiles.length; i++) {
+            try {
+                BufferedImage image = ImageIO.read(selectedImageFiles[i]);
+                if (image == null) throw new IOException("无法读取图片格式");
+                loadedImages.put(selectedImageFiles[i], image); addThumbnail(selectedImageFiles[i], image);
+            } catch (IOException ex) { errors.append(selectedImageFiles[i].getName()).append(": ").append(ex.getMessage()).append("\n"); }
+        }
+        thumbnailPanel.revalidate(); thumbnailPanel.repaint();
+        if (!loadedImages.isEmpty()) { File first = (File) loadedImages.keySet().iterator().next(); selectImage(first); saveButton.setEnabled(false); setTitle("颜色减少工具 - 已打开 " + loadedImages.size() + " 张图片"); }
+        if (errors.length() > 0) JOptionPane.showMessageDialog(this, "部分图片读取失败：\n" + errors.toString());
+    }
+
+    /** 使用JList的多区间选择，支持鼠标左键拖拽框选文件，并可切换任意目录。 */
+    private File[] chooseImageFilesByDrag() {
+        File initial = new File(AppPreferences.get(PREF_OPEN_DIRECTORY, System.getProperty("user.home", ".")));
+        if (!initial.isDirectory()) initial = new File(System.getProperty("user.home", "."));
+        final JDialog dialog = new JDialog(this, "选择图片（鼠标左键拖拽框选，可多选）", true);
+        final JTextField directoryField = new JTextField(initial.getAbsolutePath());
+        final JList list = new JList();
+        list.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        list.setLayoutOrientation(JList.VERTICAL); list.setVisibleRowCount(18);
+        list.setFixedCellHeight(24);
+        final DefaultListModel model = new DefaultListModel(); list.setModel(model);
+        installRubberSelection(list);
+        final File[][] selectedHolder = new File[1][]; final boolean[] cancelled = new boolean[] { true };
+        final Runnable refresh = new Runnable() { public void run() {
+            model.clear(); File dir = new File(directoryField.getText().trim()); if (!dir.isDirectory()) return;
+            File[] images = dir.listFiles(new FilenameFilter() { public boolean accept(File d, String name) {
+                String n=name.toLowerCase(); return n.endsWith(".jpg")||n.endsWith(".jpeg")||n.endsWith(".png")||n.endsWith(".bmp")||n.endsWith(".gif"); }});
+            if (images == null) return; java.util.Arrays.sort(images, new Comparator() { public int compare(Object a,Object b) { return ((File)a).getName().compareToIgnoreCase(((File)b).getName()); }});
+            for (int i=0;i<images.length;i++) model.addElement(images[i]);
+        }};
+        JButton chooseDirectory = new JButton("选择目录..."); JButton refreshButton = new JButton("刷新");
+        chooseDirectory.addActionListener(new ActionListener() { public void actionPerformed(ActionEvent e) {
+            JFileChooser chooser = new JFileChooser(new File(directoryField.getText().trim())); chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(dialog)==JFileChooser.APPROVE_OPTION) { directoryField.setText(chooser.getSelectedFile().getAbsolutePath()); refresh.run(); }
+        }});
+        refreshButton.addActionListener(new ActionListener() { public void actionPerformed(ActionEvent e) { refresh.run(); }});
+        JPanel top = new JPanel(new BorderLayout(4,4)); top.add(refreshButton,BorderLayout.WEST); top.add(directoryField,BorderLayout.CENTER); top.add(chooseDirectory,BorderLayout.EAST);
+        JButton ok = new JButton("打开"); JButton cancel = new JButton("取消");
+        ok.addActionListener(new ActionListener() { public void actionPerformed(ActionEvent e) {
+            Object[] selected=list.getSelectedValues(); if (selected==null||selected.length==0) { JOptionPane.showMessageDialog(dialog,"请至少选择一张图片"); return; }
+            File[] result=new File[selected.length]; for(int i=0;i<selected.length;i++) result[i]=(File)selected[i]; selectedHolder[0]=result; cancelled[0]=false;
+            AppPreferences.put(PREF_OPEN_DIRECTORY,new File(directoryField.getText().trim()).getAbsolutePath()); dialog.dispose();
+        }});
+        cancel.addActionListener(new ActionListener() { public void actionPerformed(ActionEvent e) { dialog.dispose(); }});
+        JPanel buttons=new JPanel(new FlowLayout(FlowLayout.RIGHT)); buttons.add(ok); buttons.add(cancel);
+        dialog.setLayout(new BorderLayout(6,6)); dialog.add(top,BorderLayout.NORTH); dialog.add(new JScrollPane(list),BorderLayout.CENTER); dialog.add(buttons,BorderLayout.SOUTH);
+        refresh.run(); dialog.setSize(760,560); dialog.setLocationRelativeTo(this); dialog.setVisible(true);
+        return cancelled[0] ? null : selectedHolder[0];
+    }
+
+    /**
+     * JList默认只在拖过已有单元格时提供连续选择，且没有明确的框选反馈。
+     * 这里补充无Ctrl/Shift时的鼠标左键拖拽选择；Ctrl/Shift仍交给JList原生逻辑处理。
+     */
+    private void installRubberSelection(final JList list) {
+        final int[] anchor = new int[] { -1 };
+        final boolean[] rubberSelecting = new boolean[] { false };
+        list.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                int modifiers = e.getModifiersEx();
+                boolean withCtrlOrShift = (modifiers & (java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK)) != 0;
+                anchor[0] = list.locationToIndex(e.getPoint());
+                rubberSelecting[0] = e.getButton() == java.awt.event.MouseEvent.BUTTON1 && !withCtrlOrShift && anchor[0] >= 0;
+                if (rubberSelecting[0]) {
+                    list.setSelectedIndex(anchor[0]);
+                    e.consume();
+                }
+            }
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                rubberSelecting[0] = false;
+                anchor[0] = -1;
+            }
+        });
+        list.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            public void mouseDragged(java.awt.event.MouseEvent e) {
+                if (!rubberSelecting[0] || anchor[0] < 0) return;
+                int current = list.locationToIndex(e.getPoint());
+                if (current < 0) return;
+                int first = Math.min(anchor[0], current);
+                int last = Math.max(anchor[0], current);
+                list.setSelectionInterval(first, last);
+                e.consume();
+            }
+        });
+    }
+
+    private void addThumbnail(final File file, BufferedImage image) {
+        int maxWidth=140, maxHeight=100;
+        double ratio=Math.min((double)maxWidth/image.getWidth(),(double)maxHeight/image.getHeight());
+        int width=Math.max(1,(int)Math.round(image.getWidth()*ratio));
+        int height=Math.max(1,(int)Math.round(image.getHeight()*ratio));
+        final JLabel thumb=new JLabel(new ImageIcon(image.getScaledInstance(width,height,Image.SCALE_SMOOTH)));
+        thumb.setToolTipText(file.getAbsolutePath());
+        thumb.setBorder(BorderFactory.createLineBorder(Color.GRAY,1));
+        thumb.addMouseListener(new java.awt.event.MouseAdapter(){public void mouseClicked(java.awt.event.MouseEvent e){selectImage(file);}});
+        thumb.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JLabel nameLabel=new JLabel(file.getName(),JLabel.CENTER);
+        nameLabel.setToolTipText(file.getAbsolutePath()); nameLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        JPanel item=new JPanel(); item.setLayout(new BoxLayout(item,BoxLayout.Y_AXIS)); item.setAlignmentX(Component.CENTER_ALIGNMENT);
+        item.add(thumb); item.add(nameLabel); thumbnailLabels.put(file,thumb); thumbnailPanel.add(item);
+    }
+
+    private void selectImage(File file) {
+        BufferedImage image = (BufferedImage) loadedImages.get(file);
+        if (image == null) return;
+        currentImageFile = file;
+        originalImage = image; currentImage = image; processedImage = (BufferedImage) processedImageFiles.get(file);
+        if (processedImage != null) currentImage = processedImage;
+        imageZoom = 1.0; showImage(currentImage); updateThumbnailFocus();
+    }
+
+    private void updateThumbnailFocus() {
+        for (Object key : thumbnailLabels.keySet()) {
+            JLabel label = (JLabel)thumbnailLabels.get(key);
+            label.setBorder(BorderFactory.createLineBorder(key.equals(currentImageFile) ? new Color(30, 120, 255) : Color.GRAY, key.equals(currentImageFile) ? 3 : 1));
+        }
+        thumbnailPanel.revalidate(); thumbnailPanel.repaint();
     }
 
     private void processImage() {
-        if (currentImage == null) {  // 改为检查 currentImage
-            JOptionPane.showMessageDialog(this, "请先打开一张图片");
-            return;
-        }
-        Object selected = colorCountCombo.getSelectedItem();
-        int targetColors = ((Integer) selected).intValue();
-        processedImage = medianCutQuantize(currentImage, targetColors);  // 基于 currentImage
-        currentImage = processedImage;  // 更新当前工作图片
-        showImage(currentImage);
-        saveButton.setEnabled(true);
+        if (loadedImages.isEmpty()) { JOptionPane.showMessageDialog(this, "请先打开图片"); return; }
+        int targetColors=((Integer)colorCountCombo.getSelectedItem()).intValue(); List targets=new ArrayList();
+        if (applyToAllCheck.isSelected()) targets.addAll(loadedImages.keySet());
+        else if (currentImageFile!=null && loadedImages.containsKey(currentImageFile)) targets.add(currentImageFile);
+        if (targets.isEmpty()) { JOptionPane.showMessageDialog(this,"请先选择当前图片"); return; }
+        int success=0; StringBuffer errors=new StringBuffer();
+        for(int i=0;i<targets.size();i++){ File input=(File)targets.get(i); try{ processedImageFiles.put(input,medianCutQuantize((BufferedImage)loadedImages.get(input),targetColors)); success++; }catch(RuntimeException ex){ errors.append(input.getName()).append(": ").append(ex.getMessage()).append("\n"); }}
+        if(currentImageFile!=null) selectImage(currentImageFile); saveButton.setEnabled(!processedImageFiles.isEmpty());
+        String message="已处理 "+success+" / "+targets.size()+" 张图片。"; if(errors.length()>0) message+="\n失败明细：\n"+errors.toString(); JOptionPane.showMessageDialog(this,message);
     }
 
     private void saveImage() {
-        if (currentImage == null) {
-            JOptionPane.showMessageDialog(this, "没有可保存的处理结果");
-            return;
-        }
-        JFileChooser chooser = createFileChooser(PREF_SAVE_DIRECTORY);
-        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
-                "PNG 图片", "png"));
-        int result = chooser.showSaveDialog(this);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            File file = chooser.getSelectedFile();
-            if (!file.getName().toLowerCase().endsWith(".png")) {
-                file = new File(file.getAbsolutePath() + ".png");
+        if (processedImageFiles.isEmpty()) { JOptionPane.showMessageDialog(this, "没有可保存的处理结果"); return; }
+        JFileChooser chooser = createFileChooser(PREF_SAVE_DIRECTORY); chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setDialogTitle("选择处理结果保存目录");
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File outputDirectory = chooser.getSelectedFile(); AppPreferences.put(PREF_SAVE_DIRECTORY, outputDirectory.getAbsolutePath());
+        int success = 0;
+        try { for (Object key : processedImageFiles.keySet()) {
+            File input = (File) key; BufferedImage image = (BufferedImage) processedImageFiles.get(key); String name = input.getName(); int dot = name.lastIndexOf('.'); if (dot > 0) name = name.substring(0, dot);
+            ImageIO.write(image, "png", new File(outputDirectory, name + "_processed.png")); success++;
+        }} catch (IOException ex) { JOptionPane.showMessageDialog(this, "保存失败: " + ex.getMessage()); return; }
+        JOptionPane.showMessageDialog(this, "已保存 " + success + " 张图片");
+    }
+
+    private void installImageViewerHandlers() {
+        imageLabel.addMouseWheelListener(new java.awt.event.MouseWheelListener() {
+            public void mouseWheelMoved(java.awt.event.MouseWheelEvent e) {
+                if (currentImage == null) return;
+                JViewport viewport = imageScrollPane.getViewport();
+                Point mouseInViewport = SwingUtilities.convertPoint(imageLabel, e.getPoint(), viewport);
+                Point oldView = viewport.getViewPosition();
+                double oldZoom = imageZoom;
+                double imageX = (oldView.x + mouseInViewport.x) / oldZoom;
+                double imageY = (oldView.y + mouseInViewport.y) / oldZoom;
+                imageZoom *= e.getWheelRotation() < 0 ? 1.15 : 0.87;
+                if (imageZoom < 0.1) imageZoom = 0.1;
+                if (imageZoom > 8.0) imageZoom = 8.0;
+                showImage(currentImage);
+                Point newView = new Point(
+                    (int)Math.round(imageX * imageZoom - mouseInViewport.x),
+                    (int)Math.round(imageY * imageZoom - mouseInViewport.y));
+                setViewportPosition(newView);
+                e.consume();
             }
-            rememberDirectory(PREF_SAVE_DIRECTORY, file);
-            try {
-                ImageIO.write(currentImage, "png", file);
-                JOptionPane.showMessageDialog(this, "保存成功");
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(this, "保存失败: " + ex.getMessage());
+        });
+        imageLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                boolean rightButton = e.getButton() == java.awt.event.MouseEvent.BUTTON3;
+                boolean shiftLeft = e.getButton() == java.awt.event.MouseEvent.BUTTON1 &&
+                    (e.getModifiersEx() & java.awt.event.InputEvent.SHIFT_DOWN_MASK) != 0;
+                if (rightButton || shiftLeft) {
+                    dragStart = SwingUtilities.convertPoint(imageLabel, e.getPoint(), imageScrollPane.getViewport());
+                    e.consume();
+                }
             }
-        }
+            public void mouseReleased(java.awt.event.MouseEvent e) { dragStart = null; }
+        });
+        imageLabel.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            public void mouseDragged(java.awt.event.MouseEvent e) {
+                if (dragStart == null) return;
+                Point now = SwingUtilities.convertPoint(imageLabel, e.getPoint(), imageScrollPane.getViewport());
+                int dx = dragStart.x - now.x;
+                int dy = dragStart.y - now.y;
+                Point position = imageScrollPane.getViewport().getViewPosition();
+                setViewportPosition(new Point(position.x + dx, position.y + dy));
+                dragStart = now;
+                e.consume();
+            }
+        });
+    }
+
+    private void setViewportPosition(Point position) {
+        if (imageScrollPane == null || imageLabel == null) return;
+        JViewport viewport = imageScrollPane.getViewport();
+        Dimension viewSize = imageLabel.getPreferredSize();
+        Dimension extent = viewport.getExtentSize();
+        int maxX = Math.max(0, viewSize.width - extent.width);
+        int maxY = Math.max(0, viewSize.height - extent.height);
+        position.x = Math.max(0, Math.min(position.x, maxX));
+        position.y = Math.max(0, Math.min(position.y, maxY));
+        viewport.setViewPosition(position);
     }
 
     private JFileChooser createFileChooser(String preferenceKey) {
-        String directoryPath = PREFERENCES.get(preferenceKey, null);
+        String directoryPath = AppPreferences.get(preferenceKey, null);
         if (directoryPath != null) {
             File directory = new File(directoryPath);
             if (directory.isDirectory()) {
@@ -260,12 +441,13 @@ public class ImageCovert extends JFrame {
     private void rememberDirectory(String preferenceKey, File file) {
         File directory = file.getParentFile();
         if (directory != null && directory.isDirectory()) {
-            PREFERENCES.put(preferenceKey, directory.getAbsolutePath());
+            AppPreferences.put(preferenceKey, directory.getAbsolutePath());
         }
     }
 
     private void showImage(BufferedImage img) {
         // 如果图像是索引色，先转为真彩色再缩放显示
+        if (img == null) return;
         BufferedImage displayImg = img;
         if (img.getType() == BufferedImage.TYPE_BYTE_INDEXED) {
         	displayImg = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_ARGB);
@@ -274,12 +456,22 @@ public class ImageCovert extends JFrame {
             g.dispose();
         }
 
-        ImageIcon icon = new ImageIcon(displayImg.getScaledInstance(
-                Math.min(displayImg.getWidth(), 640),
-                Math.min(displayImg.getHeight(), 480),
-                Image.SCALE_SMOOTH));
+        int width = Math.max(1, (int)Math.round(displayImg.getWidth() * imageZoom));
+        int height = Math.max(1, (int)Math.round(displayImg.getHeight() * imageZoom));
+        ImageIcon icon = new ImageIcon(displayImg.getScaledInstance(width, height, Image.SCALE_SMOOTH));
+        Dimension extent = imageScrollPane.getViewport().getExtentSize();
+        imageLabel.setPreferredSize(new Dimension(Math.max(width, extent.width), Math.max(height, extent.height)));
+        imageLabel.setHorizontalAlignment(JLabel.CENTER);
+        imageLabel.setVerticalAlignment(JLabel.CENTER);
         imageLabel.setIcon(icon);
         imageLabel.setText("");
+        imageLabel.setHorizontalAlignment(JLabel.CENTER);
+        imageLabel.setVerticalAlignment(JLabel.CENTER);
+        if (zoomInfoLabel != null) zoomInfoLabel.setText("缩放: " + (int)Math.round(imageZoom * 100.0) + "%");
+        imageLabel.revalidate();
+        imageLabel.repaint();
+        imageScrollPane.revalidate();
+        imageScrollPane.repaint();
     }
 
     // ---------- 中位切分算法核心 ----------
@@ -516,66 +708,16 @@ public class ImageCovert extends JFrame {
     }
 
     private void scaleOnly() {
-        if (originalImage == null) {
-            JOptionPane.showMessageDialog(this, "请先打开一张图片");
-            return;
-        }
-
-        String widthText = widthField.getText().trim();
-        String heightText = heightField.getText().trim();
-        int newWidth = -1, newHeight = -1;
-
-        if (widthText.isEmpty() && heightText.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入目标宽度或高度");
-            return;
-        }
-
-        try {
-            if (!widthText.isEmpty()) {
-                newWidth = Integer.parseInt(widthText);
-                if (newWidth <= 0) throw new NumberFormatException();
-            }
-            if (!heightText.isEmpty()) {
-                newHeight = Integer.parseInt(heightText);
-                if (newHeight <= 0) throw new NumberFormatException();
-            }
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "宽度和高度必须为正整数");
-            return;
-        }
-
-        // 如果启用了保持比例，自动计算缺失的尺寸
-        if (keepRatioCheck.isSelected()) {
-            int origW = originalImage.getWidth();
-            int origH = originalImage.getHeight();
-            if (newWidth > 0 && newHeight <= 0) {
-                newHeight = (int) ((double) origH * newWidth / origW);
-                if (newHeight < 1) newHeight = 1;
-                heightField.setText(String.valueOf(newHeight));
-            } else if (newHeight > 0 && newWidth <= 0) {
-                newWidth = (int) ((double) origW * newHeight / origH);
-                if (newWidth < 1) newWidth = 1;
-                widthField.setText(String.valueOf(newWidth));
-            }
-        }
-        
-        // 确保两个尺寸都已设置,避免出现错误尺寸
-        if (newWidth <= 0 || newHeight <= 0) {
-            JOptionPane.showMessageDialog(this, "请同时输入宽度和高度，或勾选“保持比例”只输入一个");
-            return;
-        }
-        
-        // 执行缩放
-        BufferedImage scaled = scaleImage(originalImage, newWidth, newHeight);
-        // 将缩放后的图片设为当前工作图片（替换 originalImage，以便后续颜色减少使用）
-        originalImage = scaled;
-        currentImage = scaled;       // 更新当前工作图片
-        showImage(currentImage);
-        // 清空之前处理结果，防止混淆
-        //processedImage = null;
-        saveButton.setEnabled(true); // 启用保存
+        if (loadedImages.isEmpty() || currentImageFile==null) { JOptionPane.showMessageDialog(this,"请先打开一张图片"); return; }
+        String wt=widthField.getText().trim(), ht=heightField.getText().trim(); int nw=-1,nh=-1;
+        if(wt.isEmpty()&&ht.isEmpty()){JOptionPane.showMessageDialog(this,"请输入目标宽度或高度");return;}
+        try{if(!wt.isEmpty()){nw=Integer.parseInt(wt);if(nw<=0)throw new NumberFormatException();}if(!ht.isEmpty()){nh=Integer.parseInt(ht);if(nh<=0)throw new NumberFormatException();}}catch(NumberFormatException e){JOptionPane.showMessageDialog(this,"宽度和高度必须为正整数");return;}
+        List targets=new ArrayList(); if(applyToAllCheck.isSelected())targets.addAll(loadedImages.keySet());else targets.add(currentImageFile);
+        int success=0; for(int i=0;i<targets.size();i++){File file=(File)targets.get(i);BufferedImage source=(BufferedImage)loadedImages.get(file);int w=nw,h=nh;if(keepRatioCheck.isSelected()){if(w>0&&h<=0)h=Math.max(1,(int)((double)source.getHeight()*w/source.getWidth()));else if(h>0&&w<=0)w=Math.max(1,(int)((double)source.getWidth()*h/source.getHeight()));}if(w<=0||h<=0){JOptionPane.showMessageDialog(this,"请同时输入宽度和高度，或勾选保持比例只输入一个");return;}loadedImages.put(file,scaleImage(source,w,h));processedImageFiles.remove(file);success++;}
+        refreshThumbnails(); selectImage(currentImageFile); saveButton.setEnabled(false); JOptionPane.showMessageDialog(this,"已缩放 "+success+" 张图片。");
     }
-    
+    private void refreshThumbnails(){thumbnailPanel.removeAll();for(Object key:loadedImages.keySet())addThumbnail((File)key,(BufferedImage)loadedImages.get(key));thumbnailPanel.revalidate();thumbnailPanel.repaint();}
+
     private BufferedImage scaleImage(BufferedImage src, int targetWidth, int targetHeight) {
         BufferedImage scaled = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2d = scaled.createGraphics();

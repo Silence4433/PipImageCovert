@@ -22,7 +22,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.prefs.Preferences;
+
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -48,7 +48,7 @@ public class SharedPaletteBatchTool extends JFrame {
     private static final String ACT_NAME = "shared_palette.act";
     private static final String PREVIEW_NAME = "shared_palette_preview.png";
     private static final String REPORT_NAME = "shared_palette_report.txt";
-    private static final Preferences PREFS = Preferences.userNodeForPackage(SharedPaletteBatchTool.class);
+
 
     private final JTextField inputField = new JTextField(36);
     private final JTextField outputField = new JTextField(36);
@@ -61,8 +61,8 @@ public class SharedPaletteBatchTool extends JFrame {
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(8, 8));
 
-        inputField.setText(PREFS.get(PREF_INPUT, ""));
-        outputField.setText(PREFS.get(PREF_OUTPUT, ""));
+        inputField.setText(AppPreferences.get(PREF_INPUT, ""));
+        outputField.setText(AppPreferences.get(PREF_OUTPUT, ""));
         JPanel form = new JPanel(new GridLayout(0, 1, 4, 4));
         form.add(directoryRow("输入目录：", inputField, true));
         form.add(directoryRow("输出目录：", outputField, false));
@@ -123,8 +123,8 @@ public class SharedPaletteBatchTool extends JFrame {
             Result result = convertDirectory(input, output,
                     ((Integer) colorSpinner.getValue()).intValue(),
                     ((Integer) alphaSpinner.getValue()).intValue(), ditherCheck.isSelected());
-            PREFS.put(PREF_INPUT, input.getAbsolutePath());
-            PREFS.put(PREF_OUTPUT, output.getAbsolutePath());
+            AppPreferences.put(PREF_INPUT, input.getAbsolutePath());
+            AppPreferences.put(PREF_OUTPUT, output.getAbsolutePath());
             JOptionPane.showMessageDialog(this, "转换完成。\n图片数：" + result.fileCount
                     + "\n实际调色板颜色数：" + result.paletteSize
                     + "\n输出：" + output.getAbsolutePath());
