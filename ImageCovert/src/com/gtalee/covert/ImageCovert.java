@@ -58,11 +58,11 @@ public class ImageCovert extends JFrame {
     private JLabel zoomInfoLabel;
     
     public ImageCovert() {
-        setTitle("颜色减少工具 (索引色输出)");
+        setTitle("ImageCovert(图像处理工具) @gtalee");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
 
-        final JPanel topPanel = new JPanel(new FlowLayout());
+        final JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 3));
         openButton = new JButton("打开图片");
         saveButton = new JButton("保存结果");
         processButton = new JButton("处理");
@@ -71,18 +71,20 @@ public class ImageCovert extends JFrame {
         atlasButton = new JButton("图集与切分文件");
         framePatchButton = new JButton("帧差补丁转换");
         usageButton = new JButton("使用建议");
-        
-        // 缩放控件
+
+        // 尺寸和缩放属于同一组功能：按钮放在尺寸输入框左侧。
         widthField = new JTextField(5);
         heightField = new JTextField(5);
         keepRatioCheck = new JCheckBox("保持比例", true);
+        topPanel.add(scaleButton);
         topPanel.add(widthField);
         topPanel.add(new JLabel(" x "));
         topPanel.add(heightField);
-        topPanel.add(keepRatioCheck);
-        applyToAllCheck = new JCheckBox("应用到全部已打开图片", true);
-        topPanel.add(applyToAllCheck);
 
+        // 颜色处理控件位于左侧；复选框统一放到右侧。
+        applyToAllCheck = new JCheckBox("应用到全部已打开图片", true);
+
+        // 颜色数输入框放在左侧，说明标签位于中间，处理按钮在最左。
         colorCountCombo = new JComboBox();
         colorCountCombo.addItem(new Integer(16));
         colorCountCombo.addItem(new Integer(32));
@@ -102,26 +104,24 @@ public class ImageCovert extends JFrame {
         colorCountCombo.addItem(new Integer(250));
         colorCountCombo.addItem(new Integer(252));
         colorCountCombo.addItem(new Integer(254));
-
-        topPanel.add(openButton);
-        topPanel.add(new JLabel("颜色数:"));
-        topPanel.add(colorCountCombo);
+        // 颜色数区域保留在顶部：处理按钮在左，说明标签居中，颜色数选择框在右。
         topPanel.add(processButton);
-        topPanel.add(saveButton);
-        
-        topPanel.add(scaleButton);
-        topPanel.add(sharedPaletteButton);
-        // 【已弃用】图集与切分文件功能入口已停用。
-        // topPanel.add(atlasButton);
-        topPanel.add(framePatchButton);
+        topPanel.add(new JLabel("指定颜色的数量(减色)"));
+        topPanel.add(colorCountCombo);
+        topPanel.add(keepRatioCheck);
+        topPanel.add(applyToAllCheck);
         add(topPanel, BorderLayout.NORTH);
 
-        // 固定放在窗口右上角独立区域，避免顶部控件过多时按钮被挤出窗口。
-        JPanel usagePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 3));
-        usageButton.setVisible(true);
-        usagePanel.add(usageButton);
-        add(usagePanel, BorderLayout.EAST);
-
+        // 除处理和缩放像素外，其余操作按钮统一放在右侧纵向排列。
+        JPanel rightButtonPanel = new JPanel();
+        rightButtonPanel.setLayout(new BoxLayout(rightButtonPanel, BoxLayout.Y_AXIS));
+        addRightButton(rightButtonPanel, openButton);
+        addRightButton(rightButtonPanel, saveButton);
+        addRightButton(rightButtonPanel, sharedPaletteButton);
+        // 【已弃用】图集与切分文件功能入口已停用，不加入界面。
+        addRightButton(rightButtonPanel, framePatchButton);
+        addRightButton(rightButtonPanel, usageButton);
+        add(rightButtonPanel, BorderLayout.EAST);
         // 左侧显示本次选择的全部图片缩略图；避免打开图片时只保留第一张。
         thumbnailPanel = new JPanel();
         thumbnailPanel.setLayout(new BoxLayout(thumbnailPanel, BoxLayout.Y_AXIS));
@@ -210,6 +210,17 @@ public class ImageCovert extends JFrame {
         setLocationRelativeTo(null);
     }
 
+    private void addRightButton(JPanel panel, JButton button) {
+        // 右侧按钮统一尺寸，并增加按钮之间的垂直间距。
+        Dimension buttonSize = new Dimension(150, 30);
+        button.setPreferredSize(buttonSize);
+        button.setMinimumSize(buttonSize);
+        button.setMaximumSize(buttonSize);
+        button.setAlignmentX(Component.CENTER_ALIGNMENT);
+        panel.add(button);
+        panel.add(javax.swing.Box.createRigidArea(new Dimension(0, 8)));
+    }
+
     private void openImage() {
         File[] files = chooseImageFilesByDrag();
         if (files == null || files.length == 0) return;
@@ -229,7 +240,7 @@ public class ImageCovert extends JFrame {
             } catch (IOException ex) { errors.append(selectedImageFiles[i].getName()).append(": ").append(ex.getMessage()).append("\n"); }
         }
         thumbnailPanel.revalidate(); thumbnailPanel.repaint();
-        if (!loadedImages.isEmpty()) { File first = (File) loadedImages.keySet().iterator().next(); selectImage(first); saveButton.setEnabled(false); setTitle("颜色减少工具 - 已打开 " + loadedImages.size() + " 张图片"); }
+        if (!loadedImages.isEmpty()) { File first = (File) loadedImages.keySet().iterator().next(); selectImage(first); saveButton.setEnabled(false); setTitle("ImageCovert(图像处理工具) @gtalee - 已打开 " + loadedImages.size() + " 张图片"); }
         if (errors.length() > 0) JOptionPane.showMessageDialog(this, "部分图片读取失败：\n" + errors.toString());
     }
 
